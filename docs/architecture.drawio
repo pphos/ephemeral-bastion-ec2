@@ -1,0 +1,112 @@
+<mxfile host="Electron" version="28.0.6">
+  <diagram id="overview" name="overview">
+    <mxGraphModel dx="1100" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="940" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="o1" value="AWS Cloud" style="points=[];outlineConnect=0;gradientColor=none;html=1;whiteSpace=wrap;fontSize=12;container=0;pointerEvents=0;collapsible=0;recursiveResize=0;shape=mxgraph.aws4.group;grIcon=mxgraph.aws4.group_aws_cloud_alt;strokeColor=#232F3E;fillColor=none;verticalAlign=top;align=left;spacingLeft=30;fontColor=#232F3E;dashed=0;" parent="1" vertex="1">
+          <mxGeometry x="180" y="170" width="1000" height="750" as="geometry" />
+        </mxCell>
+        <mxCell id="o2" value="利用者&lt;br&gt;（DB クライアント）" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3E;strokeColor=none;dashed=0;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=13;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.user;" parent="1" vertex="1">
+          <mxGeometry x="40" y="70" width="58" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="o3" value="&lt;b&gt;Slack&lt;/b&gt;&lt;br&gt;専用チャンネル（起動・終了ボタン）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#4A154B;strokeWidth=2;fontColor=#4A154B;fontSize=13;" parent="1" vertex="1">
+          <mxGeometry x="380" y="64" width="260" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="o4" value="管理者" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#232F3E;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.user;" parent="1" vertex="1">
+          <mxGeometry x="40" y="740" width="58" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="o5" value="terraform/bastion-ec2-slackops" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#067F68;strokeWidth=2;dashed=1;dashPattern=8 4;html=1;whiteSpace=wrap;verticalAlign=bottom;align=left;spacingLeft=10;spacingBottom=6;fontColor=#067F68;fontStyle=1;fontSize=13;" parent="1" vertex="1">
+          <mxGeometry x="210" y="210" width="700" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="o6" value="&lt;b&gt;Lambda（Function URL）&lt;/b&gt;&lt;br&gt;署名とチャンネルを確認" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.lambda;" parent="1" vertex="1">
+          <mxGeometry x="380" y="250" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="o7" value="&lt;b&gt;Step Functions&lt;/b&gt;&lt;br&gt;Standard" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=middle;verticalAlign=middle;labelPosition=right;align=left;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.step_functions;" parent="1" vertex="1">
+          <mxGeometry x="760" y="250" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="o8" value="terraform/bastion-ec2" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#1F6FEB;strokeWidth=2;dashed=1;dashPattern=8 4;html=1;whiteSpace=wrap;verticalAlign=bottom;align=left;spacingLeft=10;spacingBottom=6;fontColor=#1F6FEB;fontStyle=1;fontSize=13;" parent="1" vertex="1">
+          <mxGeometry x="210" y="440" width="520" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="o9" value="&lt;b&gt;踏み台 EC2&lt;/b&gt;&lt;br&gt;Elastic IP で固定" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#ED7100;strokeColor=#ffffff;dashed=0;verticalLabelPosition=top;verticalAlign=bottom;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.ec2;" parent="1" vertex="1">
+          <mxGeometry x="420" y="490" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="o10" value="terraform/examples/sample-db（任意）" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#8A2BE2;strokeWidth=2;dashed=1;dashPattern=8 4;html=1;whiteSpace=wrap;verticalAlign=bottom;align=left;spacingLeft=10;spacingBottom=6;fontColor=#8A2BE2;fontStyle=1;fontSize=13;" parent="1" vertex="1">
+          <mxGeometry x="770" y="440" width="400" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="o11" value="&lt;b&gt;sample-db&lt;/b&gt;&lt;br&gt;RDS for PostgreSQL" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#C925D1;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.rds;" parent="1" vertex="1">
+          <mxGeometry x="940" y="490" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="o12" value="Systems Manager（Terraform の管理外）" style="rounded=1;arcSize=4;fillColor=none;strokeColor=#6B7280;strokeWidth=2;dashed=1;dashPattern=8 4;html=1;whiteSpace=wrap;verticalAlign=bottom;align=left;spacingLeft=10;spacingBottom=6;fontColor=#6B7280;fontStyle=1;fontSize=13;" parent="1" vertex="1">
+          <mxGeometry x="210" y="690" width="520" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="o13" value="&lt;b&gt;Session Manager&lt;/b&gt;&lt;br&gt;管理者の接続" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.systems_manager;" parent="1" vertex="1">
+          <mxGeometry x="250" y="730" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="o14" value="&lt;b&gt;Parameter Store&lt;/b&gt;&lt;br&gt;SSH ホスト鍵&lt;br&gt;利用者の公開鍵&lt;br&gt;Slack の Signing Secret" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.systems_manager;" parent="1" vertex="1">
+          <mxGeometry x="520" y="730" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="ボタンを押す" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;" parent="1" source="o2" target="o3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="HTTPS（署名付き）" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.15;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="o3" target="o6" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="実行を開始" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;" parent="1" source="o6" target="o7" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="通知（HTTP Task）" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="o7" target="o3" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="起動・終了" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.15;entryY=0;entryDx=0;entryDy=0;" parent="1" source="o7" target="o8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="799" y="420" />
+              <mxPoint x="288" y="420" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e6" value="SSH トンネル（TCP 2222）" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="o2" target="o9" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="69" y="529" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e7" value="PostgreSQL（TCP 5432）" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;" parent="1" source="o9" target="o11" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="コンソールから接続" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;" parent="1" source="o4" target="o13" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="SSM 接続" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" parent="1" source="o13" target="o9" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="289" y="670" />
+              <mxPoint x="439" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" value="起動時に鍵を取得" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=0.75;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="o9" target="o14" edge="1">
+          <mxGeometry x="0.4" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="478" y="670" />
+              <mxPoint x="559" y="670" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="o15" value="&lt;b&gt;CloudWatch Logs&lt;/b&gt;&lt;br&gt;User Data のログ&lt;br&gt;sshd のログ" style="sketch=0;points=[[0,0,0],[0.25,0,0],[0.5,0,0],[0.75,0,0],[1,0,0],[0,1,0],[0.25,1,0],[0.5,1,0],[0.75,1,0],[1,1,0],[0,0.25,0],[0,0.5,0],[0,0.75,0],[1,0.25,0],[1,0.5,0],[1,0.75,0]];outlineConnect=0;fontColor=#232F3E;fillColor=#E7157B;strokeColor=#ffffff;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=13;aspect=fixed;shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.cloudwatch_2;" parent="1" vertex="1">
+          <mxGeometry x="830" y="760" width="78" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="ログを送信" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;strokeWidth=2;strokeColor=#232F3E;fontSize=12;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.9;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="o9" target="o15" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="750" y="560" />
+              <mxPoint x="750" y="799" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
