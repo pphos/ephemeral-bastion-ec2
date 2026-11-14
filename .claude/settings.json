@@ -1,0 +1,14 @@
+{
+  "enabledPlugins": {
+    "aws-core@agent-toolkit-for-aws": true,
+    "terraform@anthropic-plugin-directory": true
+  },
+  "extraKnownMarketplaces": {
+    "agent-toolkit-for-aws": {
+      "source": {
+        "source": "github",
+        "repo": "aws/agent-toolkit-for-aws"
+      }
+    }
+  }
+}
