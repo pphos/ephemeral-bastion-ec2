@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "skills": {
+    "natural-japanese": {
+      "source": "coji/natural-japanese",
+      "sourceType": "github",
+      "skillPath": "skills/natural-japanese/SKILL.md",
+      "computedHash": "40683c3c92259a33ba7e52cd5c65311de55103a4c9275ab832408704a6b6e81b"
+    },
+    "yomiyasu": {
+      "source": "nanaism/yomiyasu",
+      "sourceType": "github",
+      "skillPath": "skills/yomiyasu/SKILL.md",
+      "computedHash": "713c7534b4d2d81048d604e2729e5e7306a78da9f5831377b4904a5c7694507a"
+    }
+  }
+}
