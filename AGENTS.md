@@ -11,8 +11,8 @@
 ## Terraform の設計
 
 - 頼まれた範囲だけを作る。将来のためだけのリソース・変数・抽象化は足さない
-- Terraform のリソース・引数・属性は、推測で書かない。書く前に、Terraform MCP でプロバイダのドキュメントを確かめる
-- AWS の仕様（IAM アクション、リソースレベルの権限、サービスの制約）は、AWS MCP のドキュメント検索で確かめる
+- Terraform のリソース・引数・属性と、Terraform の設計や書き方の提案（state、backend、ファイル構成、バージョン指定など）は、記憶で答えず、Terraform MCP や HashiCorp の公式ドキュメントで確かめてから出す
+- AWS の仕様（IAM アクション、リソースレベルの権限、サービスの制約）と、AWS のサービスを使った設計の提案は、記憶で答えず、AWS MCP のドキュメント検索や Skill で確かめてから出す
 - リソース名は `${var.name_prefix}-<役割>` にそろえる。`name_prefix` の既定値は `ephemeral-bastion`
 - secret は、Terraform の state・User Data・README・コミットに含めない
 - 費用が増える変更や未確定の仕様は、推測で埋めずに Human に確認する
