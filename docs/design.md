@@ -170,11 +170,11 @@ Phase 1 では、管理者が CLI で終了します。Phase 2 では、「終�
 
 ### state の保存先
 
-state は S3 バケットに置き、ロックは S3 だけで行います（`use_lockfile`）。DynamoDB は使いません。バケットは `bootstrap` の Terraform で作ります。最初はローカル state で作り、そのあとバケットを保存先に設定して state を移します。これが一般的な手順です。
+state は S3 バケットに置き、ロックは S3 だけで行います（`use_lockfile`）。DynamoDB は使いません。1 つのバケットを、構成ごとのキー（`ephemeral-bastion-ec2/<構成名>/terraform.tfstate`）で分けて使います。バケット名などの値は、`backend.hcl` に書いて、`terraform init -backend-config=backend.hcl` で渡します。アカウント ID を、リポジトリに残さないためです。バケットは `bootstrap` の Terraform で作ります。最初はローカル state で作り、そのあとバケットを保存先に設定して state を移します。これが一般的な手順です。
 
 ### sample-db（検証用の DB）
 
-RDS for PostgreSQL、`db.t4g.micro`、シングル AZ、gp3 の 20 GB とします。ストレージは暗号化し、パブリックアクセスは無効にします。削除保護、最終スナップショット、自動バックアップは付けません。`terraform destroy` ですぐ消せることを最優先にするためです。
+RDS for PostgreSQL 18.6（版を固定し、マイナーバージョンの自動更新は止める）、`db.t4g.micro`、シングル AZ、gp3 の 20 GB とします。ストレージは暗号化し、パブリックアクセスは無効にします。削除保護、最終スナップショット、自動バックアップは付けません。`terraform destroy` ですぐ消せることを最優先にするためです。
 
 マスターパスワードは `password_wo`（write-only 引数）で渡します。値が state に残らず、Terraform 1.11 以降で使えます。`manage_master_user_password` は、ローテーションを止めると Secrets Manager を使う利点が薄いため、採用しませんでした。
 
