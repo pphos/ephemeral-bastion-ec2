@@ -192,7 +192,7 @@ RDS for PostgreSQL、`db.t4g.micro`、シングル AZ、gp3 の 20 GB としま�
 | `userdata.sh.tftpl` | User Data のテンプレート（`bastion-ec2` のみ） |
 | `terraform.tfvars.example` | 変数の記入例 |
 
-リソース名は `${var.name_prefix}-<役割>` とし、`name_prefix` の既定値は `ephemeral-bastion` です。
+リソース名は `${var.resource_prefix}-<役割>` とし、`resource_prefix` の既定値は `ephemeral-bastion` です。ただし、state 用のバケットは、ほかのプロジェクトと共有できるよう、接頭辞を付けず、`tfstate-<アカウント ID>` とします。リージョンは `ap-northeast-1` に固定し、変数にしません。
 
 ## 利用者の動線
 
