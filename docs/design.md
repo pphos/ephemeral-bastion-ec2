@@ -49,7 +49,7 @@ User Data の最終ステップで、EC2 自身が `aws ec2 associate-address --
 - `instance_initiated_shutdown_behavior = "terminate"` にして、OS から shutdown すれば Terminate になるようにする
 - User Data は `set -Eeuo pipefail` と `trap 'shutdown -h now' ERR` で書き、失敗したら自己 Terminate させる
 - EIP を付ける直前に、次の検査を行う。1 つでも失敗すれば EIP を付けずに終了する
-  - `sshd -t`（sshd の設定の文法）
+  - `sshd -t`（sshd の設定の文法）と、`sshd -T`（効いている設定）
   - `id tunnel` と `ssh-keygen -l`（利用者のユーザーと公開鍵）
   - DB のポートへの TCP 接続（ログインはせず、つながるかだけを見る）
 
@@ -67,8 +67,11 @@ User Data の流れは、次のとおりです。
 利用者は専用ユーザー `tunnel` で入ります。利用者に必要なのは DB へのトンネルだけなので、シェルは使わせない方針です。シェルを使えると、IMDS（インスタンスメタデータ）から、インスタンスロールの一時クレデンシャルを取られるおそれがあります。そのロールで、SSM Parameter Store に置いた SSH のホスト秘密鍵を読み出せます。IMDS には、sudo が使えないユーザーも含めて、サーバー上の誰でもアクセスできるためです。
 
 - `tunnel` のログインシェルは `/sbin/nologin` にする
-- sshd で `Port`（変数 `ssh_port` の値。標準の 22 は使わない）、`AllowUsers tunnel`、`PermitTTY no`、`ForceCommand /bin/false`、`AllowTcpForwarding local`、`PermitOpen <DB のホスト>:<ポート>` を設定する。許可するのはポートフォワードだけで、転送先は DB に限る
+- sshd で `Port`（変数 `ssh_port` の値。標準の 22 は使わない）、`AllowUsers tunnel`、`PermitTTY no`、`ForceCommand /bin/false`、`AllowTcpForwarding local`、`AllowStreamLocalForwarding no`、`PermitOpen <DB のホスト>:<ポート>` を設定する。許可するのはポートフォワードだけで、転送先は DB に限る。Unix ソケットの転送は、TCP の設定とは別なので、個別に止める。`PermitOpen` は文字列をそのまま比べるため、利用者のトンネルの転送先は、DB のエンドポイントの名前と同じにする
 - `ec2-user` には、Launch Template の `key_name` を使わず公開鍵を置かない。さらに `AllowUsers` で SSH を拒否する。ユーザー自体の削除は、cloud-init との相性を考えて行わない
+- sshd の設定は、`/etc/ssh/sshd_config.d/00-bastion.conf` に置く。標準の `sshd_config` を書き換えると、暗号の方針（crypto policy）が外れて、古い `ssh-rsa` の署名が有効に戻る恐れがあるためである
+- `Port` と `HostKey` は、標準の設定と足し合わされる。EIP を付ける前に `sshd -T` で、効いている設定が意図どおりで、ポートとホスト鍵が 1 つずつであることを確かめる
+- `authorized_keys` は、root 所有の `/etc/ssh/authorized_keys/tunnel` に置く（`AuthorizedKeysFile`）。`tunnel` にホームディレクトリは作らない
 
 管理者は、AWS コンソールの SSM Session Manager で入ります。SSH では入りません。Instance Profile に `AmazonSSMManagedInstanceCore` を付けます。EIP が付いているので、VPC エンドポイントは要りません。
 
@@ -81,6 +84,8 @@ EIP もホスト鍵も固定なので、利用者の `known_hosts` に記録さ�
 ### 利用者の公開鍵
 
 利用者の公開鍵は、ホスト鍵と同じく SecureString として SSM Parameter Store に置き、起動時に取得して、`tunnel` の `authorized_keys` に書きます。型をそろえる利点は、取得の処理と権限の設定を、ホスト鍵と共通にできることです。利用者の追加と削除は、Terraform を apply し直さずに、パラメータの値を書き換えるだけで行えます。取得できなければ、User Data が失敗して、踏み台は自己 Terminate します。
+
+ホスト鍵と公開鍵のパラメータは、どちらも Terraform の外で作ります。作る手間を減らすため、`scripts/setup-ssm-parameters.sh` を用意します。公開鍵のファイルを渡すと、ホスト鍵がなければ生成して置き、公開鍵のパラメータは上書きで更新できます。秘密鍵は一時ディレクトリにだけ作り、スクリプトの終了時に消えるようにしてあります。
 
 ### Security Group
 
@@ -99,7 +104,7 @@ DB 側は、IP ではなく踏み台の Security Group を指定します。踏�
 | 権限 | 用途 |
 |---|---|
 | `ssm:GetParameter` | ホスト鍵、利用者の公開鍵、CloudWatch エージェントの設定の取得。対象は、その 3 つのパラメータだけ |
-| `logs:CreateLogStream`、`logs:PutLogEvents` | ログの送信。対象は、踏み台用のロググループだけ |
+| `logs:CreateLogStream`、`logs:PutLogEvents`、`logs:DescribeLogStreams` | ログの送信。対象は、踏み台用のロググループだけ。`DescribeLogStreams` は、CloudWatch エージェントが必要とする |
 | `ec2:AssociateAddress` | EIP の関連付け。EIP・インスタンス・ENI の 3 リソースに `Role=bastion` タグの条件を付ける |
 | `AmazonSSMManagedInstanceCore`（AWS 管理ポリシー） | 管理者の SSM 接続 |
 
@@ -116,7 +121,9 @@ Amazon Linux 2023 は、ログを systemd のジャーナルに記録するの�
 
 - User Data の最初のほうで、エージェントをインストールし、Parameter Store の設定を取得して起動する
 - 設定は、String のパラメータに置いて、Terraform で作る
-- ロググループも Terraform で作り、保持期間を設定する
+- ロググループも Terraform で作り、保持期間は 30 日とする
+- User Data の実行ログは `/var/log/cloud-init-output.log` を、sshd のログは journald の `sshd` ユニットを集める（設定は AWS のドキュメントで確認済み）
+- エージェントは、Amazon Linux 2023 のリポジトリのパッケージを `dnf install` で入れる
 - User Data が失敗して shutdown するときは、ログを送り終えるために、少し待ってから終了する
 
 ### Slack からの操作
@@ -237,13 +244,8 @@ RDS for PostgreSQL 18.6（版を固定し、マイナーバージョンの自動
 ## 未確定の事項
 
 - 利用者が使う DB クライアント（A5:SQL Mk-2、DBeaver、HeidiSQL など）の内蔵 SSH が、known_hosts をどう扱うか。Windows と Mac の両方で確かめる
-- `ForceCommand /bin/false` を設定しても、DB クライアントのトンネルが動くか。実機で確かめる
-- `ec2:AssociateAddress` のタグ条件が、意図どおり効くか。最初の apply のあとで確かめ、拒否されたら CloudTrail で理由を見る
-- Terraform と AWS プロバイダのバージョンの固定方法
-- 利用者の公開鍵のパラメータを、Terraform で作るか、ホスト鍵と同じく Terraform の外で入れるか
-- Amazon Linux 2023 での、CloudWatch エージェントのインストール方法（`dnf`）と、User Data のログの場所。実装のときに確かめる
-- sshd のログに、ログインに使った公開鍵の指紋が残るか。残れば、利用者の区別に使える
-- ロググループの保持期間- HTTP Task が、EventBridge の接続（API Key の方式）で、Slack のトークンを `Authorization: Bearer ...` の形で渡せるか
+- `ForceCommand /bin/false` を設定しても、DB クライアントのトンネルが動くか。`ssh -N -L` では動くことを確かめた。DB クライアントの内蔵 SSH では、実機で確かめる
+- HTTP Task が、EventBridge の接続（API Key の方式）で、Slack のトークンを `Authorization: Bearer ...` の形で渡せるか
 - `ignore_changes` を付けた接続で、トークンを CLI で更新したあとも plan が空になるか。ほかの項目を更新しても、本物のトークンを上書きしないか
 - 状態機械の実行ロールに必要な権限。`RunInstances` に伴う権限の詳細は、実装のときに AWS のドキュメントで確かめる
 - 準備完了を確かめる間隔と、失敗と見なす時間。初期化にかかる時間を見て決める
