@@ -1,0 +1,5 @@
+vpc_id               = "vpc-xxxxxxxxxxxxxxxxx"
+public_subnet_id     = "subnet-xxxxxxxxxxxxxxxxx"
+allowed_cidrs        = ["203.0.113.10/32"]
+db_security_group_id = "sg-xxxxxxxxxxxxxxxxx"
+db_host              = "example-db.xxxxxxxxxxxx.ap-northeast-1.rds.amazonaws.com"
