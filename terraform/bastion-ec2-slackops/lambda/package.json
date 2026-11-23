@@ -1,0 +1,28 @@
+{
+  "name": "bastion-slack-command",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check --deny-warnings",
+    "fix": "vp check --fix",
+    "lint": "vp lint --deny-warnings",
+    "format:check": "vp fmt --check",
+    "typecheck": "tsc --noEmit",
+    "test": "vp test"
+  },
+  "devDependencies": {
+    "@aws-lambda-powertools/logger": "2.36.0",
+    "@aws-lambda-powertools/parameters": "2.36.0",
+    "@aws-sdk/client-sfn": "3.1166.0",
+    "@aws-sdk/client-ssm": "3.1166.0",
+    "@types/aws-lambda": "8.10.164",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vite-plus": "1.5.1"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "packageManager": "pnpm@12.21.0"
+}

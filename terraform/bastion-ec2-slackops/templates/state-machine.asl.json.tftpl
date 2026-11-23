@@ -1,0 +1,651 @@
+{
+  "Comment": "Slack のスラッシュコマンドで、踏み台 EC2 を起動・終了する",
+  "QueryLanguage": "JSONata",
+  "StartAt": "Init",
+  "States": {
+    "Init": {
+      "Type": "Pass",
+      "Assign": {
+        "action": "{% $states.input.action %}",
+        "userId": "{% $states.input.userId %}",
+        "threadTs": null,
+        "instanceId": null,
+        "instanceState": null,
+        "publicIp": null,
+        "startedAt": null,
+        "failReason": null,
+        "failCause": null,
+        "skipTitle": null,
+        "skipDetail": null
+      },
+      "Next": "PostAccepted"
+    },
+    "PostAccepted": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & '`/bastion ' & $action & '` を受け付けました' & '*' & '\\n' & '• 実行した人: <@' & $userId & '>'} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "Assign": {
+        "threadTs": "{% ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b).ts %}"
+      },
+      "Next": "FindBastion"
+    },
+    "FindBastion": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:describeInstances",
+      "Arguments": {
+        "Filters": [
+          {
+            "Name": "tag:Role",
+            "Values": [
+              "bastion"
+            ]
+          },
+          {
+            "Name": "instance-state-name",
+            "Values": [
+              "pending",
+              "running",
+              "shutting-down",
+              "stopping",
+              "stopped"
+            ]
+          }
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Route",
+      "Assign": {
+        "found": "{% $append([], $states.result.Reservations.Instances) %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "Route": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $action = 'start' and $count($found[State.Name != 'shutting-down']) > 0 %}",
+          "Next": "PostSkipped",
+          "Assign": {
+            "skipTitle": "{% '踏み台サーバーはすでに起動しています' %}",
+            "skipDetail": "{% '• サーバー ID: `' & $found[State.Name != 'shutting-down'][0].InstanceId & '`' %}"
+          }
+        },
+        {
+          "Condition": "{% $action = 'start' and $count($found) > 0 %}",
+          "Next": "PostSkipped",
+          "Assign": {
+            "skipTitle": "{% '前の踏み台サーバーが終了するのを待っています' %}",
+            "skipDetail": "{% '少し待ってから、もう一度実行してください。' %}"
+          }
+        },
+        {
+          "Condition": "{% $action = 'start' %}",
+          "Next": "RunInstances"
+        },
+        {
+          "Condition": "{% $count($found[State.Name != 'shutting-down']) > 0 %}",
+          "Next": "PostStopping",
+          "Assign": {
+            "instanceId": "{% $found[State.Name != 'shutting-down'][0].InstanceId %}"
+          }
+        },
+        {
+          "Condition": "{% $count($found) > 0 %}",
+          "Next": "PostSkipped",
+          "Assign": {
+            "skipTitle": "{% '踏み台サーバーは終了中です' %}",
+            "skipDetail": "{% '• サーバー ID: `' & $found[0].InstanceId & '`' %}"
+          }
+        },
+        {
+          "Condition": "{% true %}",
+          "Next": "PostSkipped",
+          "Assign": {
+            "skipTitle": "{% '起動中の踏み台サーバーはありません' %}",
+            "skipDetail": "{% '' %}"
+          }
+        }
+      ]
+    },
+    "PostSkipped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & $skipTitle & '*' & ($skipDetail ? '\\n' & $skipDetail : ''), 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "End": true
+    },
+    "RunInstances": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:runInstances",
+      "Arguments": {
+        "LaunchTemplate": {
+          "LaunchTemplateId": "${launch_template_id}"
+        },
+        "MinCount": 1,
+        "MaxCount": 1,
+        "ClientToken": "{% $states.context.Execution.Name %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "PostStarting",
+      "Assign": {
+        "instanceId": "{% $states.result.Instances[0].InstanceId %}",
+        "startedAt": "{% $toMillis($now()) %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "PostStarting": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & '踏み台サーバーを起動しています' & '*' & '\\n' & '• サーバー ID: `' & $instanceId & '`' & '\\n' & '準備ができるまで 1〜2 分かかります。', 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "TerminateUnannounced",
+          "Assign": {
+            "failCause": "{% 'Failed to post to Slack, so the bastion was terminated. Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ],
+      "Next": "WaitBeforeCheck"
+    },
+    "TerminateUnannounced": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:terminateInstances",
+      "Arguments": {
+        "InstanceIds": [
+          "{% $instanceId %}"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "Failed"
+    },
+    "WaitBeforeCheck": {
+      "Type": "Wait",
+      "Seconds": "{% $instanceState ? 15 : 60 %}",
+      "Next": "CheckReady"
+    },
+    "CheckReady": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:describeInstances",
+      "Arguments": {
+        "InstanceIds": [
+          "{% $instanceId %}"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "DecideReady",
+      "Assign": {
+        "instanceState": "{% $states.result.Reservations[0].Instances[0].State.Name %}",
+        "publicIp": "{% ($ip := $states.result.Reservations[0].Instances[0].PublicIpAddress; $ip ? $ip : '') %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "DecideReady": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $publicIp = '${eip_public_ip}' %}",
+          "Next": "PostReady"
+        },
+        {
+          "Condition": "{% $instanceState in ['shutting-down', 'terminated', 'stopping', 'stopped'] %}",
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "初期化に失敗し、自動で終了しました",
+            "failCause": "{% 'The bastion terminated before it became ready.' %}"
+          }
+        },
+        {
+          "Condition": "{% $toMillis($now()) - $startedAt >= 300000 %}",
+          "Next": "TerminateTimedOut",
+          "Assign": {
+            "failReason": "5 分以内に準備ができなかったため、終了しました",
+            "failCause": "{% 'The bastion did not become ready within 5 minutes.' %}"
+          }
+        }
+      ],
+      "Default": "WaitBeforeCheck"
+    },
+    "PostReady": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & '準備ができました' & '*' & '\\n' & '接続できます。', 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "End": true
+    },
+    "TerminateTimedOut": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:terminateInstances",
+      "Arguments": {
+        "InstanceIds": [
+          "{% $instanceId %}"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "PostFailed",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "PostStopping": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & '踏み台サーバーを終了しています' & '*' & '\\n' & '• サーバー ID: `' & $instanceId & '`', 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "Next": "TerminateInstances"
+    },
+    "TerminateInstances": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:terminateInstances",
+      "Arguments": {
+        "InstanceIds": [
+          "{% $instanceId %}"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "WaitForTerminate",
+      "Assign": {
+        "startedAt": "{% $toMillis($now()) %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "WaitForTerminate": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "CheckTerminated"
+    },
+    "CheckTerminated": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:ec2:describeInstances",
+      "Arguments": {
+        "InstanceIds": [
+          "{% $instanceId %}"
+        ]
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Ec2.RequestLimitExceededException",
+            "Ec2.InternalErrorException",
+            "Ec2.UnavailableException",
+            "Ec2.ServiceUnavailableException",
+            "Ec2.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Next": "DecideTerminated",
+      "Assign": {
+        "instanceState": "{% $states.result.Reservations[0].Instances[0].State.Name %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "エラーが起きました",
+            "failCause": "{% 'Error: ' & $string($states.errorOutput) %}"
+          }
+        }
+      ]
+    },
+    "DecideTerminated": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $instanceState = 'terminated' %}",
+          "Next": "PostStopped"
+        },
+        {
+          "Condition": "{% $toMillis($now()) - $startedAt >= 300000 %}",
+          "Next": "PostFailed",
+          "Assign": {
+            "failReason": "5 分以内に終了しませんでした",
+            "failCause": "{% 'The bastion was not terminated within 5 minutes.' %}"
+          }
+        }
+      ],
+      "Default": "WaitForTerminate"
+    },
+    "PostStopped": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & '終了しました' & '*', 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "End": true
+    },
+    "PostFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::http:invoke",
+      "Arguments": {
+        "ApiEndpoint": "https://slack.com/api/chat.postMessage",
+        "Method": "POST",
+        "InvocationConfig": {
+          "ConnectionArn": "${connection_arn}"
+        },
+        "Headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "RequestBody": "{% {'channel': '${channel_id}', 'text': '*' & ($action = 'start' ? '起動できませんでした' : '終了できませんでした') & '*' & '\\n' & '• 理由: ' & $failReason & '\\n' & '管理者に連絡してください。', 'thread_ts': $threadTs} %}"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.Http.StatusCode.429",
+            "States.Http.StatusCode.502",
+            "States.Http.StatusCode.503",
+            "States.Http.StatusCode.504",
+            "States.Http.Socket"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Output": "{% ($r := ($b := $states.result.ResponseBody; $type($b) = 'string' ? $parse($b) : $b); $r.ok = true ? $r : $error('Failed to post to Slack: ' & $string($r.error))) %}",
+      "Next": "Failed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "{% $action = 'start' ? 'BastionStartFailed' : 'BastionStopFailed' %}",
+      "Cause": "{% $failCause & ' Instance: ' & ($instanceId ? $instanceId : 'none') %}"
+    }
+  }
+}

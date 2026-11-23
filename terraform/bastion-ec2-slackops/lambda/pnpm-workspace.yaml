@@ -1,0 +1,9 @@
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
+strictDepBuilds: true
+engineStrict: true
+
+# Vite+ のドキュメントに従い、依存が参照する vite と vitest を、Vite+ が同梱する版にそろえる
+overrides:
+  vite@*: npm:@voidzero-dev/vite-plus-core@1.5.1
+  vitest@*: 5.1.0
