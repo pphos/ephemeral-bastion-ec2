@@ -1,6 +1,8 @@
 # ephemeral-bastion-ec2
 
-Slack のスラッシュコマンドで踏み台 EC2 を起動し、SSH トンネルで AWS 内の DB に接続する仕組みです。踏み台は使うたびに新しく作り、使い終わったら Terminate します。
+下記の Zenn で紹介しているサンプルです。Slack のスラッシュコマンドで踏み台 EC2 を起動し、SSH トンネルで AWS 内の DB に接続する仕組みです。踏み台は使うたびに新しく作り、使い終わったら Terminate します。
+
+- https://zenn.dev/babyjob/articles/ephemeral-bastion-ec2
 
 設計の判断と理由は [docs/design.md](docs/design.md) を参照してください。
 
