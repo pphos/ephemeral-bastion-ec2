@@ -1,8 +1,8 @@
 # ephemeral-bastion-ec2
 
-使い捨ての踏み台 EC2 を Terraform で管理するリポジトリです。利用者は Slack のスラッシュコマンド `/bastion start` で踏み台を起動し、手元の DB クライアントから SSH トンネルで AWS 内の DB に接続します。使い終わったら `/bastion stop` で踏み台を Terminate します。
+Slack のスラッシュコマンドで踏み台 EC2 を起動し、SSH トンネルで AWS 内の DB に接続する仕組みです。踏み台は使うたびに新しく作り、使い終わったら Terminate します。
 
-踏み台は毎回新しく作って消すので、OS の更新などの保守が要りません。Elastic IP と SSH のホスト鍵は固定しているので、利用者の接続設定は踏み台が変わってもそのまま使えます。設計の判断と理由は [docs/design.md](docs/design.md) にまとめています。
+設計の判断と理由は [docs/design.md](docs/design.md) を参照してください。
 
 ## アーキテクチャ
 
@@ -24,125 +24,95 @@ docs/
   design.md                  # 設計の判断と理由
 ```
 
-Terraform は独立して apply する 4 つの構成に分けています。構成どうしは state を参照しません。
+Terraform は 4 つの構成に分けています。構成どうしは state を参照しません。
 
 | 構成 | 主なリソース | 役割 |
 |---|---|---|
-| `bastion-ec2` | EIP、Security Group、IAM ロール、Launch Template、CloudWatch Logs | 踏み台の本体。踏み台は Launch Template から起動し、初期化が終わると自分で EIP を付ける |
-| `bastion-ec2-slackops` | Lambda（Function URL）、Step Functions、EventBridge の接続、IAM ロール | Slack のスラッシュコマンドで、踏み台を起動・終了する。`bastion-ec2` のリソースは、名前とタグで引く |
-| `examples/sample-db`（任意） | RDS for PostgreSQL、DB Subnet Group、Security Group | DB を持たない人が試すための DB |
+| `bastion-ec2` | EIP、Security Group、IAM ロール、Launch Template | 踏み台の本体 |
+| `bastion-ec2-slackops` | Lambda（Function URL）、Step Functions、EventBridge の接続 | Slack から踏み台を起動・終了する |
+| `examples/sample-db`（任意） | RDS for PostgreSQL | 検証用の DB |
 | `examples/bootstrap`（任意） | S3 バケット | state の保存先 |
-
-リージョンは `ap-northeast-1` に固定しています。リソース名の接頭辞は変数 `resource_prefix`（既定値は `ephemeral-bastion`）で変えられます。変えるときは、すべての構成で同じ値にし、スクリプトでは環境変数 `RESOURCE_PREFIX` で同じ値を指定してください。
 
 ### Slack から起動するときの流れ
 
 ![Slack から起動するときの流れ](docs/architecture-phase2.png)
 
-Lambda は Slack の署名と、専用チャンネルからのコマンドかを確かめ、Step Functions の実行を始めます。EC2 の起動・終了と Slack への投稿は、Step Functions が直接行います。公開される Lambda には EC2 を操作する権限を持たせていません。
+Lambda は Slack の署名とチャンネルを確かめて、Step Functions の実行を始めます。EC2 の操作と Slack への投稿は Step Functions が行います。
 
 ## 仕組みのデプロイ
 
 ### 前提
 
-- AWS 上に、次のものがあること
-  - VPC と、踏み台を置くパブリックサブネット
-  - 接続先の DB。なければ `sample-db` で作れる。その場合は、異なる AZ のプライベートサブネットが 2 つ以上要る
-- 次のものが手元に入っていること
+- AWS 上に次のものがあること
+  - VPC とパブリックサブネット
+  - 接続先の DB。`sample-db` で作る場合は、異なる AZ のプライベートサブネットが 2 つ以上要る
+- 次のものがインストールされていること
   - [AWS CLI](https://docs.aws.amazon.com/ja_jp/cli/latest/userguide/getting-started-install.html)
-  - [mise](https://mise.jdx.dev/)。Terraform、Node.js、pnpm のバージョンを `mise.toml` で固定している
-- Slack のワークスペースで、アプリを作れること
-- （任意）AI エージェントで作業する場合は、[Agent Toolkit for AWS](https://docs.aws.amazon.com/agent-toolkit/latest/userguide/what-is-agent-toolkit.html) の導入を勧める
+  - [mise](https://mise.jdx.dev/)（Terraform、Node.js、pnpm を入れる）
+- Slack のワークスペースでアプリを作れること
+- （任意）AI エージェントで作業する場合は [Agent Toolkit for AWS](https://docs.aws.amazon.com/agent-toolkit/latest/userguide/what-is-agent-toolkit.html) の導入を推奨
 
-リポジトリの直下で、ツールを入れます。
+### 準備
+
+コマンドはリポジトリの直下で、AWS の認証情報を設定したシェルから実行します。
 
 ```bash
 mise install
 ```
 
-AWS の認証情報は環境変数かプロファイルで設定しておきます。以下のコマンドは、どれもその認証情報で実行します。
+デプロイする構成ごとに、`backend.hcl.example` を `backend.hcl` に、`terraform.tfvars.example` を `terraform.tfvars` にコピーし、値を書き換えます。どちらのコピーも Git の管理外です。state は S3 バケット `tfstate-<アカウント ID>` に保存します。バケットがなければ `examples/bootstrap` で作ります。最初はローカル state で apply し、バケットができたら state をそこへ移します。
 
-### 1. state の保存先を用意する
+リージョンは `ap-northeast-1` に固定しています。リソース名の接頭辞を変えるときは、全構成の変数 `resource_prefix` と、スクリプトの環境変数 `RESOURCE_PREFIX` を同じ値にします。
 
-state は S3 バケット `tfstate-<アカウント ID>` に、構成ごとのキーで置きます。バケットは `terraform/examples/bootstrap` で作ります。
+### 1. DB（任意）
 
-各構成では `backend.hcl.example` を `backend.hcl` にコピーし、`<アカウント ID>` を書き換えてから初期化します。`backend.hcl` は `.gitignore` に入っているので、アカウント ID はリポジトリに残りません。
-
-```bash
-terraform init -backend-config=backend.hcl
-```
-
-### 2. 接続先の DB を用意する
-
-手持ちの DB を使うなら、その DB のホスト名、ポート、Security Group の ID を控えます。
-
-DB がなければ、`sample-db` で検証用の RDS を作ります。`terraform.tfvars.example` を `terraform.tfvars` にコピーして、VPC とプライベートサブネットの ID を書きます。マスターパスワードは write-only の引数で渡すので、state には残りません。シェルの履歴にも残らないよう、画面に表示せずに環境変数へ読み込んでから apply します。
+検証用の DB が要る場合だけデプロイします。`read` の行では、DB のマスターパスワードを入力します。
 
 ```bash
-cd terraform/examples/sample-db
 read -rs TF_VAR_db_password && export TF_VAR_db_password
-terraform init -backend-config=backend.hcl
-terraform apply
+terraform -chdir=terraform/examples/sample-db init -backend-config=backend.hcl
+terraform -chdir=terraform/examples/sample-db apply
 ```
 
-出力の `db_host`、`db_port`、`db_security_group_id` を、`bastion-ec2` の変数に使います。
+出力の `db_host`、`db_port`、`db_security_group_id` を `bastion-ec2` の変数に使います。
 
-### 3. SSH の鍵を SSM に置く
+### 2. 踏み台
 
-利用者の公開鍵のファイルを渡して、スクリプトを実行します。SSH のホスト鍵がなければ生成して置き、利用者の公開鍵は上書きで置きます。利用者を足したり外したりするときも、同じスクリプトを実行し直します。Terraform を apply し直す必要はありません。
+利用者の公開鍵を登録します。SSH のホスト鍵も、なければ作られます。
 
 ```bash
 scripts/setup-ssm-parameters.sh alice.pub bob.pub
 ```
 
-### 4. bastion-ec2 を作る
-
-`terraform/bastion-ec2/terraform.tfvars.example` を `terraform.tfvars` にコピーして、値を書き換えます。`allowed_cidrs` には、SSH を許可する接続元の IP を書きます。個人の IP が入るので、`terraform.tfvars` は `.gitignore` に入れてあります。
+`bastion-ec2` をデプロイします。`allowed_cidrs` には SSH を許可する接続元の IP を書きます。
 
 ```bash
-cd terraform/bastion-ec2
-terraform init -backend-config=backend.hcl
-terraform plan
-terraform apply
+terraform -chdir=terraform/bastion-ec2 init -backend-config=backend.hcl
+terraform -chdir=terraform/bastion-ec2 apply
 ```
 
-出力の `eip_public_ip` が利用者の接続先になります。
+出力の `eip_public_ip` が、利用者の SSH の接続先です。
 
-### 5. Slack の専用チャンネルを用意する
+### 3. Slack から操作する仕組み
 
-踏み台を操作する専用のパブリックチャンネルを作ります。チャンネル名を押して開く「チャンネル詳細」の一番下にある、チャンネル ID（`C` から始まる値）を控えます。ほかのチャンネルで打った `/bastion` には反応しません。
+Slack に専用のパブリックチャンネルを作り、「チャンネル詳細」の一番下にあるチャンネル ID を `slack_channel_id` に書きます。
 
-### 6. bastion-ec2-slackops を作る
-
-Terraform はビルドをしないので、先に Lambda を JavaScript の 1 ファイルにビルドします。ビルド、テスト、Lint、フォーマットは Vite+ で行います。
+Lambda をビルドしてから `bastion-ec2-slackops` をデプロイします。
 
 ```bash
 cd terraform/bastion-ec2-slackops/lambda
 pnpm install
-pnpm run check
-pnpm run typecheck
-pnpm test
 pnpm run build
+cd -
+
+terraform -chdir=terraform/bastion-ec2-slackops init -backend-config=backend.hcl
+terraform -chdir=terraform/bastion-ec2-slackops apply
+terraform -chdir=terraform/bastion-ec2-slackops output -raw function_url
 ```
 
-`dist/index.mjs` ができます。`terraform.tfvars.example` を `terraform.tfvars` にコピーし、`slack_channel_id` に、手順 5 で控えたチャンネル ID を書いてから apply します。
+### 4. Slack アプリ
 
-```bash
-cd terraform/bastion-ec2-slackops
-terraform init -backend-config=backend.hcl
-terraform plan
-terraform apply
-```
-
-出力の `function_url` を、次の手順で Slack アプリに設定します。
-
-```bash
-terraform output -raw function_url
-```
-
-### 7. Slack アプリを作る
-
-[Slack の API サイト](https://api.slack.com/apps)で「Create New App」を押し、「Paste a manifest」を選びます。ワークスペースを選んでから、YAML の形式で次を貼り付けます。`<function_url>` は、手順 6 で表示した URL に置き換えてください。
+[Slack の API サイト](https://api.slack.com/apps)の「Create New App」→「Paste a manifest」で、次の YAML からアプリを作ります。`<function_url>` は手順 3 の最後に表示された URL に置き換えます。
 
 ```yaml
 display_information:
@@ -168,29 +138,24 @@ settings:
   token_rotation_enabled: false
 ```
 
-アプリを作ったら、次の 2 つを行います。
+「Install App」でワークスペースにインストールし、専用チャンネルで `/invite @bastion` を実行します。
 
-1. 左のメニューの「Install App」で、ワークスペースにインストールする
-2. 専用チャンネルで `/invite @bastion` を打って、アプリを招待する。招待していないチャンネルには投稿できない
-
-### 8. Slack の秘密情報を登録する
-
-スクリプトを実行し、2 つの値を貼り付けます。入力した値は画面に表示されず、シェルの履歴にも残りません。
-
-- Signing Secret: 「Basic Information」の「App Credentials」にある値
-- Bot トークン: 「Install App」に表示される「Bot User OAuth Token」（`xoxb-` から始まる値）
+最後に、Slack の秘密情報を登録します。
 
 ```bash
 scripts/setup-slack-secrets.sh
 ```
 
-空のまま Enter を押した項目は変わらないので、片方だけを登録し直すこともできます。Bot トークンは、Terraform がダミーの値で作った EventBridge の接続に登録します。Terraform はこの値の変更を無視するので、apply し直しても、本物のトークンは上書きされません。
+| 入力する値 | Slack アプリの設定画面での場所 |
+|---|---|
+| Signing Secret | 「Basic Information」の「App Credentials」 |
+| Bot トークン（`xoxb-` から始まる値） | 「Install App」の「Bot User OAuth Token」 |
 
 ## 使い方
 
-### 踏み台を起動・終了する
+### 起動・終了
 
-専用チャンネルで `/bastion start` を打ちます。チャンネルに受け付けの投稿が 1 件だけ出て、経過と結果はそのスレッドに入ります。
+専用チャンネルで `/bastion start` を実行します。1〜2 分で準備が終わり、経過と結果はスレッドに投稿されます。
 
 ```text
 /bastion start を受け付けました
@@ -202,120 +167,87 @@ scripts/setup-slack-secrets.sh
     接続できます。
 ```
 
-使い終わったら `/bastion stop` を打ちます。スレッドに「踏み台サーバーを終了しています」と「終了しました」が入ります。すでに起動している、起動中の踏み台がない、のような場面では、その旨をスレッドに返して終わります。
+使い終わったら `/bastion stop` を実行します。
 
-管理者は AWS CLI でも起動・終了できます。起動は `bastion-ec2` の出力の `launch_template_id` を指定して、`run-instances` を 1 回実行します。
+### DB への接続
 
-```bash
-aws ec2 run-instances --region ap-northeast-1 --launch-template LaunchTemplateId=<launch_template_id>
-```
-
-終了は `Role=bastion` タグの踏み台を探して、Terminate します。
-
-```bash
-aws ec2 describe-instances --region ap-northeast-1 \
-  --filters Name=tag:Role,Values=bastion Name=instance-state-name,Values=pending,running \
-  --query 'Reservations[].Instances[].InstanceId' --output text
-```
-
-```bash
-aws ec2 terminate-instances --region ap-northeast-1 --instance-ids <インスタンス ID>
-```
-
-### DB に接続する
-
-利用者はユーザー `tunnel` と自分の秘密鍵で、踏み台の EIP にポート `2222`（変数 `ssh_port`）で接続し、DB へのポートフォワードだけを使います。シェルには入れません。DB クライアントの SSH トンネルの設定にも、次の ssh コマンドと同じ値を入れます。
+SSH トンネルを張り、DB クライアントから `localhost:15432` に接続します。
 
 ```bash
 ssh -N -L 15432:<db_host>:5432 -p 2222 -i <秘密鍵> tunnel@<eip_public_ip>
 ```
 
-この例では DB クライアントから `localhost:15432` に接続します。`-L` の指定で、手元の 15432 番への接続が SSH の接続の中を通って踏み台まで運ばれ、踏み台から DB の 5432 番に届きます。DB はプライベートサブネットにあり、踏み台からの接続だけを受け付けるので、手元から直接はつなげません。手元の番号は、空いていれば何番でも構いません。
+- `<db_host>` は `bastion-ec2` の変数 `db_host` と同じ文字列にする。IP アドレスや別名では拒否される
+- トンネルが張れると、何も表示されずに待機する。`Ctrl+C` で切断する
 
-転送先は `bastion-ec2` の変数 `db_host` と同じ名前にしてください。sshd は転送先を文字列のまま比べるので、IP アドレスや別名では拒否されます。
-
-### DB に接続できるかを確かめる
-
-psql で、トンネルを通って DB にログインできるかを確かめます。psql は Homebrew の libpq に入っています。
-
-```bash
-brew install libpq
-```
-
-ターミナルを 2 つ使います。1 つ目のターミナルで、前の節の ssh コマンドを実行してトンネルを張ります。何も表示されずに止まったままになれば、トンネルが張れています。
-
-2 つ目のターミナルで、psql からログインします。パスワードを聞かれたら、DB のパスワード（`sample-db` なら、作ったときのマスターパスワード）を入力します。
+psql（`brew install libpq`）で確かめる場合は、別のターミナルで次を実行します。
 
 ```bash
 $(brew --prefix libpq)/bin/psql -h localhost -p 15432 -U postgres -d postgres -c 'select version();'
 ```
 
-`PostgreSQL 18.6 on ...` のような行が返れば、踏み台を通って DB にログインできています。確かめ終わったら、1 つ目のターミナルを `Ctrl+C` で止めます。
+`PostgreSQL 18.6 on ...` のような行が返れば成功です。
 
-つながらないときは、エラーの文で原因を絞れます。
+## 後片付け
+
+`/bastion stop` で踏み台を終了してから、作った順の逆で削除します。
+
+```bash
+terraform -chdir=terraform/bastion-ec2-slackops destroy
+terraform -chdir=terraform/bastion-ec2 destroy
+terraform -chdir=terraform/examples/sample-db destroy   # 作った場合だけ
+```
+
+次のものは Terraform の外で作ったので、手動で削除します。
+
+- SSM パラメータ `/<resource_prefix>/host-key`、`/<resource_prefix>/user-public-keys`、`/<resource_prefix>/slack-signing-secret`
+- Slack アプリ
+
+## 補足
+
+### 接続できないとき
 
 | エラー | 考えられる原因 |
 |---|---|
 | ssh で `Connection timed out` | 手元の IP が、`allowed_cidrs` に入っていない |
 | ssh で `Connection refused` | 踏み台がまだ準備中か、すでに終了している |
 | ssh で `Permission denied (publickey)` | 秘密鍵が、登録した公開鍵と対になっていない |
-| psql がつながらず、1 つ目のターミナルに `open failed: administratively prohibited` | ssh の転送先が `db_host` の名前と一致せず、踏み台が転送を拒否した |
+| psql がつながらず、SSH トンネルのターミナルに `open failed: administratively prohibited` | ssh の転送先が `db_host` の名前と一致せず、踏み台が転送を拒否した |
 | psql で `password authentication failed` | DB のユーザー名かパスワードが違う |
 
-## 後片付け
+### 起動・終了に失敗したとき
 
-踏み台が起動していれば、先に `/bastion stop` で終了しておきます。そのあと、作った順の逆で destroy します。`bastion-ec2-slackops` は `bastion-ec2` のリソースを名前で引くので、先に消します。
+| 症状 | 確認するもの |
+|---|---|
+| コマンドを実行しても何も起きない | CloudWatch Logs の `/aws/lambda/<resource_prefix>-slack-command` |
+| スレッドに「起動できませんでした」「終了できませんでした」と出た | Step Functions の実行履歴（出力 `state_machine_arn`） |
+| 踏み台の初期化に失敗した | `bastion-ec2` の出力 `log_group_name` のロググループ |
 
-```bash
-cd terraform/bastion-ec2-slackops
-terraform destroy
-```
+### 設定やコードを変えるとき
 
-```bash
-cd terraform/bastion-ec2
-terraform destroy
-```
+- 利用者の追加・削除: `scripts/setup-ssm-parameters.sh` に全員の公開鍵を渡して実行し直す。公開鍵は上書きされる。apply は不要
+- Slack の秘密情報の更新: `scripts/setup-slack-secrets.sh` を実行し直す。空のまま Enter を押した項目は変わらない
+- Lambda のコード: `pnpm run check`、`pnpm run typecheck`、`pnpm test` で確かめ、手順 3 のビルドと apply をやり直す
+- Powertools のバージョン: `main.tf` の `powertools_layer_arn` と、`lambda/package.json` の `@aws-lambda-powertools/*` を一緒に上げる
 
-`sample-db` を作った場合は、最後に消します。
+### Slack を使わずに起動・終了する
 
-```bash
-cd terraform/examples/sample-db
-terraform destroy
-```
-
-Terraform の外で作った SSM パラメータは、destroy では消えません。要らなくなったら、`/<resource_prefix>/host-key`、`/<resource_prefix>/user-public-keys`、`/<resource_prefix>/slack-signing-secret` を消してください。Slack アプリも Slack の API サイトから削除します。
-
-## 補足
-
-### うまく動かないとき
-
-- スレッドに「起動できませんでした」「終了できませんでした」と出たら、Step Functions のコンソールで、`bastion-ec2-slackops` の出力の `state_machine_arn` の状態機械を開く。失敗した実行には、止まった状態の名前とエラーの内容が残る
-- コマンドを打っても何も起きないときは、Lambda のログ（CloudWatch Logs の `/aws/lambda/<resource_prefix>-slack-command`）を見る。署名の確認に失敗した理由などが残る
-- 踏み台の初期化に失敗したときは、`bastion-ec2` の出力の `log_group_name` のロググループを見る。User Data の実行ログと sshd のログが、インスタンス ID ごとに残る
-
-### Lambda のコードを変えたとき
-
-ビルドしてから plan と apply をします。ビルドを忘れると、古いコードのまま plan されます。フォーマットと Lint の指摘は、`pnpm run fix` で直せるものは直せます。
+管理者は AWS CLI でも操作できます。
 
 ```bash
-cd terraform/bastion-ec2-slackops/lambda
-pnpm run check
-pnpm run typecheck
-pnpm test
-pnpm run build
-cd ..
-terraform plan
-terraform apply
+# 起動（ID は bastion-ec2 の出力 launch_template_id）
+aws ec2 run-instances --region ap-northeast-1 --launch-template LaunchTemplateId=<launch_template_id>
+
+# 終了（1 つ目のコマンドで ID を調べる）
+aws ec2 describe-instances --region ap-northeast-1 \
+  --filters Name=tag:Role,Values=bastion Name=instance-state-name,Values=pending,running \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+aws ec2 terminate-instances --region ap-northeast-1 --instance-ids <インスタンス ID>
 ```
-
-### Powertools のバージョンを上げるとき
-
-Powertools for AWS Lambda は、AWS が公開している Lambda レイヤーで読み込みます。バージョンを上げるときは、`main.tf` の `powertools_layer_arn` のレイヤーの番号と、`lambda/package.json` の `@aws-lambda-powertools/*` のバージョンを一緒に上げます。
 
 ### Claude Code から AWS を操作するとき
 
-Claude Code は Agent Toolkit for AWS の `aws-core` プラグインに同梱の AWS MCP を通して AWS を操作します。同梱の AWS MCP は `default` プロファイルの認証情報で動きます。
+Agent Toolkit for AWS の `aws-core` プラグインに同梱の AWS MCP は、`default` プロファイルの認証情報で動きます。
 
-同梱の AWS MCP のエンドポイントは us-east-1 にあり、`default` プロファイルのリージョンを、リクエストの署名に使います。`default` のリージョンを `us-east-1` 以外にすると、リクエストが 401 で拒否されます。操作するリソースのリージョンは呼び出しごとに指定するので、`default` のリージョンとは関係ありません。
-
-`default` が IAM Identity Center（SSO）のプロファイルなら、トークンの期限が切れると AWS を操作できなくなります。`aws sso login` でログインし直してから、Claude Code の `/mcp` で AWS MCP を再接続してください。
+- `default` のリージョンは `us-east-1` にする。署名に使われ、ほかの値では 401 で拒否される。操作するリソースのリージョンとは関係ない
+- SSO のトークンが切れたら、`aws sso login` のあと `/mcp` で再接続する
