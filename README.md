@@ -31,7 +31,7 @@ Terraform は 4 つの構成に分けています。構成どうしは state を
 | 構成 | 主なリソース | 役割 |
 |---|---|---|
 | `bastion-ec2` | EIP、Security Group、IAM ロール、Launch Template | 踏み台の本体 |
-| `bastion-ec2-slackops` | Lambda（Function URL）、Step Functions、EventBridge の接続 | Slack から踏み台を起動・終了する |
+| `bastion-ec2-slackops` | Lambda（Function URL）、Step Functions、EventBridge Connection | Slack から踏み台を起動・終了する |
 | `examples/sample-db`（任意） | RDS for PostgreSQL | 検証用の DB |
 | `examples/bootstrap`（任意） | S3 バケット | state の保存先 |
 

@@ -4,7 +4,7 @@ output "function_url" {
 }
 
 output "connection_name" {
-  description = "Slack の Bot トークンを登録する EventBridge の接続の名前"
+  description = "Slack の Bot トークンを登録する EventBridge Connection の名前"
   value       = aws_cloudwatch_event_connection.slack.name
 }
 

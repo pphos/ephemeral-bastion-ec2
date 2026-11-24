@@ -20,7 +20,7 @@ Terraform は、独立して apply する 4 つの構成に分けています。
 | 構成 | 位置づけ | 主なリソース |
 |---|---|---|
 | `terraform/bastion-ec2` | 本体。踏み台の EC2 と、その土台 | EIP、踏み台の Security Group、IAM ロール、Launch Template、DB の Security Group への ingress ルール |
-| `terraform/bastion-ec2-slackops` | 本体。Slack のスラッシュコマンドで踏み台を起動・終了する | スラッシュコマンドを受ける Lambda（Function URL）、Step Functions（Standard）、EventBridge の接続、IAM ロール |
+| `terraform/bastion-ec2-slackops` | 本体。Slack のスラッシュコマンドで踏み台を起動・終了する | スラッシュコマンドを受ける Lambda（Function URL）、Step Functions（Standard）、EventBridge Connection、IAM ロール |
 | `terraform/examples/sample-db` | 任意。DB を持たない人が試すための環境 | RDS for PostgreSQL、DB Subnet Group、DB の Security Group |
 | `terraform/examples/bootstrap` | 任意。state 用のバケット | S3 バケット |
 
@@ -232,27 +232,27 @@ Slack への投稿に失敗したら、その場で実行を失敗として止�
 | `ec2:TerminateInstances` | 踏み台の終了。`ec2:ResourceTag/Role=bastion` のものだけ |
 | `states:InvokeHTTPEndpoint` | HTTP Task の呼び出し。自分の状態機械からの、Slack の URL への POST に限る |
 | `events:RetrieveConnectionCredentials` | 接続からトークンを取り出す。対象は自分の接続だけ |
-| `secretsmanager:GetSecretValue`、`secretsmanager:DescribeSecret` | 接続のシークレットの読み出し。対象は `events!connection/*` のシークレット |
+| `secretsmanager:GetSecretValue`、`secretsmanager:DescribeSecret` | Connection のシークレットの読み出し。対象は `events!connection/*` のシークレット |
 
 `ec2:LaunchTemplate` と `ec2:IsLaunchTemplateResource` の条件は、Launch Template の `resolve:ssm` で AMI を解決する起動と組み合わせても、許可されることを実機で確かめました。
 
 ### Slack のトークン
 
-HTTP Task は EventBridge の接続を通して Slack の Bot トークンを使います。トークンは、接続が Secrets Manager に暗号化して保管します。接続が作るシークレットは、自分で用意したものに差し替えられません。
+HTTP Task は EventBridge Connection を通して Slack の Bot トークンを使います。トークンは、Connection が Secrets Manager に暗号化して保管します。Connection が作るシークレットは、自分で用意したものに差し替えられません。
 
-HTTP Task の定義には `Authorization` ヘッダーを書けません。書くと実行時にエラーになります。そこで、接続を API Key 方式にし、キーの名前を `Authorization`、値を `Bearer <トークン>` にします。この形で Slack に投稿できることは、実機で確かめました。
+HTTP Task の定義には `Authorization` ヘッダーを書けません。書くと実行時にエラーになります。そこで、Connection を API Key 方式にし、キーの名前を `Authorization`、値を `Bearer <トークン>` にします。この形で Slack に投稿できることは、実機で確かめました。
 
-Terraform の state には、リソースの引数に渡した値が、そのまま残ります。変数や環境変数で渡しても同じです。この接続には write-only の引数がないため、本物のトークンは Terraform に渡しません。次の手順にします。
+Terraform の state には、リソースの引数に渡した値が、そのまま残ります。変数や環境変数で渡しても同じです。Connection には write-only の引数がないため、本物のトークンは Terraform に渡しません。次の手順にします。
 
-1. Terraform が接続を仮の値（ダミー）で作る。state に残るのは、ダミーだけ
+1. Terraform が Connection を仮の値（ダミー）で作る。state に残るのは、ダミーだけ
 2. 人が AWS CLI の `update-connection` で、トークンを本物に更新する
-3. 接続の `auth_parameters` 全体に、`lifecycle` の `ignore_changes` を付ける
+3. Connection の `auth_parameters` 全体に、`lifecycle` の `ignore_changes` を付ける
 
-AWS プロバイダのソースを確かめたところ、接続を読み込むときは、AWS の API が値を返さないので、トークンの値を state から引き継ぎます。そのため、本物に更新したあとも plan は空になります。
+AWS プロバイダのソースを確かめたところ、Connection を読み込むときは、AWS の API が値を返さないので、トークンの値を state から引き継ぎます。そのため、本物に更新したあとも plan は空になります。
 
-一方、接続を更新するときは、`auth_parameters` を毎回まるごと送ります。ほかの項目を変えて接続が更新されると、本物のトークンがダミーで上書きされます。これを避けるため、`description` などの任意の項目は設定しません。もし上書きされたら、トークンを登録し直します。
+一方、Connection を更新するときは、`auth_parameters` を毎回まるごと送ります。ほかの項目を変えて Connection が更新されると、本物のトークンがダミーで上書きされます。これを避けるため、`description` などの任意の項目は設定しません。もし上書きされたら、トークンを登録し直します。
 
-接続は Terraform が作るので、`terraform destroy` で一緒に消えます。`ignore_changes` を外すと、次の apply でトークンがダミーに戻り、Slack に投稿できなくなるので、この理由をコードのコメントに書きます。
+Connection は Terraform が作るので、`terraform destroy` で一緒に消えます。`ignore_changes` を外すと、次の apply でトークンがダミーに戻り、Slack に投稿できなくなるので、この理由をコードのコメントに書きます。
 
 ### Slack の秘密情報の登録
 
@@ -261,7 +261,7 @@ Slack の秘密情報は 2 つあり、どちらも Terraform の外で登録し
 | 秘密情報 | 置き場所 |
 |---|---|
 | Signing Secret | SSM Parameter Store の SecureString（`/${resource_prefix}/slack-signing-secret`） |
-| Bot トークン | EventBridge の接続（中身は Secrets Manager） |
+| Bot トークン | EventBridge Connection（中身は Secrets Manager） |
 
 登録には `scripts/setup-slack-secrets.sh` を用意します。書き方は Phase 1 の `scripts/setup-ssm-parameters.sh` にそろえます。
 
@@ -388,7 +388,7 @@ RDS for PostgreSQL 18.6（版を固定し、マイナーバージョンの自動
 | 許可する Slack ユーザー ID を変数で持つ | 人が増減するたびに、Terraform を直すことになる |
 | Slack のトークンを、変数で渡して state に残す | 変数や環境変数で渡しても、state にトークンが残る。AGENTS.md の方針に反する |
 | Slack のトークンを SSM に置き、通知用の Lambda で投稿する | Lambda が増える。HTTP Task で足りる |
-| EventBridge の接続を、Terraform の外で作る | 手作業が増え、`terraform destroy` でも消えない |
+| EventBridge Connection を、Terraform の外で作る | 手作業が増え、`terraform destroy` でも消えない |
 | Workflow Builder のワークフローを、チャンネルのブックマークから起動する | 有料プランが前提で、無料プランでは試せない |
 | ボタン付きのメッセージを、専用チャンネルにピン留めする | ボタンのメッセージを置く仕組みが要る。スラッシュコマンドなら、置いておくメッセージが要らない |
 | プライベートチャンネルのメンバーだけが操作する | 隠す必要のある操作ではない |
