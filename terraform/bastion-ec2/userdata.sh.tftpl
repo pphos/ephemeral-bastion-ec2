@@ -1,0 +1,218 @@
+#!/bin/bash
+#
+# SSH の踏み台を初期化して、最後に EIP を付ける。失敗したら、EIP を付けずに自分で shutdown する。
+
+set -Eeuo pipefail
+
+readonly TUNNEL_USER="tunnel"
+readonly HOST_KEY_FILE="/etc/ssh/bastion_host_ed25519_key"
+readonly AUTHORIZED_KEYS_DIR="/etc/ssh/authorized_keys"
+readonly AUTHORIZED_KEYS_FILE="$AUTHORIZED_KEYS_DIR/$TUNNEL_USER"
+readonly SHUTDOWN_DELAY_SECONDS=30
+
+#######################################
+# 時刻付きのログを、標準出力に書く。cloud-init のログ経由で、CloudWatch Logs に送られる。
+# Arguments:
+#   ログの本文
+#######################################
+log() {
+  echo "[$(date +%Y-%m-%dT%H:%M:%S%z)] $1"
+}
+
+#######################################
+# 失敗したときに呼ばれる。ログが CloudWatch Logs に届くのを待ってから、shutdown する。
+# Globals:
+#   SHUTDOWN_DELAY_SECONDS
+#######################################
+on_error() {
+  log "User Data failed. Shutting down in $SHUTDOWN_DELAY_SECONDS seconds."
+  sleep "$SHUTDOWN_DELAY_SECONDS"
+  shutdown -h now
+}
+
+#######################################
+# SecureString のパラメータを復号して、ファイルに書き出す。値はログに出さない。
+# Arguments:
+#   パラメータ名
+#   書き出し先のファイル。権限を設定して、あらかじめ作っておく
+#######################################
+fetch_parameter() {
+  local name="$1"
+  local output_file="$2"
+
+  aws ssm get-parameter \
+    --name "$name" \
+    --with-decryption \
+    --query Parameter.Value \
+    --output text > "$output_file"
+}
+
+#######################################
+# CloudWatch エージェントを入れて、Parameter Store の設定で起動する。
+# User Data のログを送るため、早めに行う。
+# Arguments:
+#   エージェントの設定を置いたパラメータの名前
+#######################################
+install_cloudwatch_agent() {
+  local config_parameter="$1"
+
+  log "Install and start the CloudWatch agent"
+  dnf install -y amazon-cloudwatch-agent
+  /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+    -a fetch-config -m ec2 -s -c "ssm:$config_parameter"
+}
+
+#######################################
+# 固定の SSH ホスト鍵を、Parameter Store から取得して配置する。
+# Globals:
+#   HOST_KEY_FILE
+# Arguments:
+#   ホスト鍵を置いたパラメータの名前
+#######################################
+place_host_key() {
+  local parameter_name="$1"
+
+  log "Place the fixed SSH host key"
+  install -m 600 -o root -g root /dev/null "$HOST_KEY_FILE"
+  fetch_parameter "$parameter_name" "$HOST_KEY_FILE"
+}
+
+#######################################
+# 利用者用のユーザーを、シェルなし、ホームなしで作り、公開鍵を root 所有のファイルに置く。
+# Globals:
+#   TUNNEL_USER
+#   AUTHORIZED_KEYS_DIR
+#   AUTHORIZED_KEYS_FILE
+# Arguments:
+#   利用者の公開鍵を置いたパラメータの名前
+#######################################
+create_tunnel_user() {
+  local parameter_name="$1"
+
+  log "Create the $TUNNEL_USER user and place the public keys"
+  useradd -M -s /sbin/nologin "$TUNNEL_USER"
+  install -d -m 755 -o root -g root "$AUTHORIZED_KEYS_DIR"
+  install -m 644 -o root -g root /dev/null "$AUTHORIZED_KEYS_FILE"
+  fetch_parameter "$parameter_name" "$AUTHORIZED_KEYS_FILE"
+}
+
+#######################################
+# sshd の設定を、ドロップインのファイルで上書きして、再起動する。
+# 標準の設定（暗号の方針など）は残す。許可するのは、DB へのポートフォワードだけ。
+# Globals:
+#   HOST_KEY_FILE
+#   AUTHORIZED_KEYS_DIR
+#   TUNNEL_USER
+# Arguments:
+#   sshd が待ち受けるポート
+#   転送先の DB のホスト名
+#   転送先の DB のポート
+#######################################
+configure_sshd() {
+  local ssh_port="$1"
+  local db_host="$2"
+  local db_port="$3"
+
+  log "Configure sshd"
+  cat > /etc/ssh/sshd_config.d/00-bastion.conf <<EOF
+Port $ssh_port
+HostKey $HOST_KEY_FILE
+
+AuthorizedKeysFile $AUTHORIZED_KEYS_DIR/%u
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+
+# 許可するのは、DB へのポートフォワードだけ
+AllowUsers $TUNNEL_USER
+PermitTTY no
+ForceCommand /bin/false
+AllowTcpForwarding local
+AllowStreamLocalForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitOpen $db_host:$db_port
+EOF
+  systemctl restart sshd
+}
+
+#######################################
+# EIP を付ける前に、sshd の実際に効く設定、ユーザー、鍵、待ち受けポート、DB への疎通を確かめる。
+# DB は、ログインせず、TCP でつながるかだけを見る。1 つでも失敗すれば、スクリプトは止まる。
+# Globals:
+#   TUNNEL_USER
+#   HOST_KEY_FILE
+#   AUTHORIZED_KEYS_FILE
+# Arguments:
+#   sshd が待ち受けているはずのポート
+#   DB のホスト名
+#   DB のポート
+#######################################
+validate_setup() {
+  local ssh_port="$1"
+  local db_host="$2"
+  local db_port="$3"
+  local effective
+
+  log "Validate the setup"
+  sshd -t
+  # ポートとホスト鍵は、標準の設定と足し合わされるため、1 つだけであることも確かめる
+  effective="$(sshd -T)"
+  grep -qx "port $ssh_port" <<< "$effective"
+  [[ "$(grep -c '^port ' <<< "$effective")" -eq 1 ]]
+  grep -qx "hostkey $HOST_KEY_FILE" <<< "$effective"
+  [[ "$(grep -c '^hostkey ' <<< "$effective")" -eq 1 ]]
+  grep -qx "allowusers $TUNNEL_USER" <<< "$effective"
+  grep -qx "permitopen $db_host:$db_port" <<< "$effective"
+  grep -qx "allowstreamlocalforwarding no" <<< "$effective"
+  id "$TUNNEL_USER"
+  ssh-keygen -l -f "$HOST_KEY_FILE"
+  ssh-keygen -l -f "$AUTHORIZED_KEYS_FILE"
+  ss -ltn "sport = :$ssh_port" | grep -q LISTEN
+  timeout 5 bash -c "exec 3<>/dev/tcp/$db_host/$db_port"
+}
+
+#######################################
+# EIP を、このインスタンスに関連付ける。すでに別のインスタンスに付いていれば失敗する。
+# インスタンス ID は、IMDSv2 から取得する。
+# Arguments:
+#   EIP の割り当て ID
+#######################################
+associate_eip() {
+  local allocation_id="$1"
+  local token
+  local instance_id
+
+  log "Associate the Elastic IP"
+  token="$(curl -sS -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 60")"
+  instance_id="$(curl -sS -H "X-aws-ec2-metadata-token: $token" \
+    "http://169.254.169.254/latest/meta-data/instance-id")"
+  aws ec2 associate-address \
+    --allocation-id "$allocation_id" \
+    --instance-id "$instance_id" \
+    --no-allow-reassociation
+}
+
+# ---------------------------------------------------------------------------
+# メインの処理
+# Terraform から渡された値は、ここで関数の引数にする。
+# 途中で失敗すると、on_error が shutdown して、自分で Terminate する。
+# ---------------------------------------------------------------------------
+trap on_error ERR
+
+log "Set the time zone to JST"
+timedatectl set-timezone Asia/Tokyo
+
+install_cloudwatch_agent "${cloudwatch_config_parameter}"
+
+log "Update OS packages"
+dnf update -y
+
+place_host_key "${host_key_parameter_name}"
+create_tunnel_user "${user_public_keys_parameter_name}"
+configure_sshd "${ssh_port}" "${db_host}" "${db_port}"
+validate_setup "${ssh_port}" "${db_host}" "${db_port}"
+associate_eip "${eip_allocation_id}"
+
+log "Bastion is ready."
