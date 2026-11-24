@@ -4,8 +4,6 @@
 
 - https://zenn.dev/babyjob/articles/ephemeral-bastion-ec2
 
-設計の判断と理由は [docs/design.md](docs/design.md) を参照してください。
-
 ## アーキテクチャ
 
 ![構成図](docs/architecture-overview.png)
